@@ -6902,7 +6902,7 @@ class CarPlayHostActivity : ComponentActivity() {
     )
 }
 
-internal data class CarPlaySessionDisplay(
+data class CarPlaySessionDisplay(
     val width: Int,
     val height: Int,
     val rotation: Int,
