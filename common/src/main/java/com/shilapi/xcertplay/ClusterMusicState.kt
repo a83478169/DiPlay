@@ -7,7 +7,7 @@ import android.os.SystemClock
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
 
 /** Main-thread snapshots reuse the bounded media artwork cache; they never own/recycle its bitmap. */
-internal object ClusterMusicState {
+object ClusterMusicState {
     data class Snapshot(val info: CarPlayNowPlaying = CarPlayNowPlaying(), val artwork: Bitmap? = null,
         val changedAt: Long = 0L, val revision: Long = 0L)
     private val main = Handler(Looper.getMainLooper())

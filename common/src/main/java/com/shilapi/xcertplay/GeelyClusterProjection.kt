@@ -18,7 +18,7 @@ import android.util.Log
  * the car's own cluster support. The switch is head-unit-wide and shared with the stock map, so the
  * state is read back as well ([status]) and re-asserted when the map hands it back.
  */
-internal object GeelyClusterProjection {
+object GeelyClusterProjection {
 
     private const val TAG = "DiPlay-Cluster"
     private const val SERVICE = "DimNaviService"

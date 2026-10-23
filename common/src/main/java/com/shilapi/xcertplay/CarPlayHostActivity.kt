@@ -6927,7 +6927,7 @@ internal fun statusBarHiddenByAnotherWindow(display: CarPlaySessionDisplay, widt
         width == display.windowWidth && height > display.windowHeight
 
 /** Process-local hand-off for keeping the CarPlay session alive while no Activity is visible. */
-internal object CarPlayBackgroundSession {
+object CarPlayBackgroundSession {
     @Volatile var active = false
     @Volatile var callPopupReady = false
     /** The running session's hotspot: a host that adopts the session never saw its HotspotReady. */

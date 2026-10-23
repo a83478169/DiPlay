@@ -8,7 +8,7 @@ import java.io.File
 import java.security.MessageDigest
 
 /** Installs the private beta's experimental identity. It has no remote fallback. */
-internal object DiPlayBootstrap {
+object DiPlayBootstrap {
     @Volatile private var ready = false
 
     @Synchronized fun ensure(context: Context, mfiTarget: MfiTarget) {
@@ -48,7 +48,7 @@ internal object DiPlayBootstrap {
     }
 }
 
-internal enum class DefaultConnectionMode(val key: String) {
+enum class DefaultConnectionMode(val key: String) {
     LAST_USED("last_used"), WIRELESS("wireless"), USB("usb");
 
     fun wireless(lastUsedWireless: Boolean): Boolean = when (this) {
@@ -62,7 +62,7 @@ internal enum class DefaultConnectionMode(val key: String) {
     }
 }
 
-internal object DiPlayPreferences {
+object DiPlayPreferences {
     private fun prefs(context: Context) = context.getSharedPreferences("diplay", Context.MODE_PRIVATE)
     fun phoneAddress(context: Context): String? = prefs(context).getString("phone_address", null)
     fun phoneName(context: Context): String = prefs(context).getString("phone_name", null) ?: "Your iPhone"
