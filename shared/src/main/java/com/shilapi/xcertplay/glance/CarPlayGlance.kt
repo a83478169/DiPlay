@@ -29,13 +29,29 @@ object CarPlayGlance {
     private var connected = false
     private var last = Snapshot()
 
-    /** Called with each new snapshot, on the thread that changed it. */
-    @Volatile var listener: ((Snapshot) -> Unit)? = null
+    /**
+     * Snapshot subscribers. Embedded hosts (e.g. NaviTool's tab) must coexist with the
+     * built-in widget, so the single legacy [listener] slot is now backed by a list:
+     * setting it replaces all subscribers (legacy exclusive semantics), while
+     * [addListener]/[removeListener] support multiple concurrent subscribers.
+     */
+    private val listeners = java.util.concurrent.CopyOnWriteArrayList<(Snapshot) -> Unit>()
+
+    var listener: ((Snapshot) -> Unit)?
+        get() = listeners.lastOrNull()
+        set(value) {
+            synchronized(listeners) { listeners.clear() }
+            value?.let { listeners.add(it) }
+        }
+
+    fun addListener(subscriber: (Snapshot) -> Unit) { listeners.add(subscriber) }
+
+    fun removeListener(subscriber: (Snapshot) -> Unit) { listeners.remove(subscriber) }
 
     /** Refresh time-dependent guidance even when no new metadata frame has arrived. */
     fun snapshot(): Snapshot {
         val (changed, current) = synchronized(this) { publishLocked() to last }
-        changed?.let { listener?.invoke(it) }
+        changed?.let { snap -> listeners.forEach { sub -> sub(snap) } }
         return current
     }
 
@@ -49,7 +65,7 @@ object CarPlayGlance {
             }
             publishLocked()
         }
-        changed?.let { listener?.invoke(it) }
+        changed?.let { snap -> listeners.forEach { sub -> sub(snap) } }
     }
 
     fun setConnected(next: Boolean) {
@@ -62,7 +78,7 @@ object CarPlayGlance {
             }
             publishLocked()
         }
-        changed?.let { listener?.invoke(it) }
+        changed?.let { snap -> listeners.forEach { sub -> sub(snap) } }
     }
 
     private fun publishLocked(): Snapshot? {

@@ -50,10 +50,14 @@ internal object NavigationWidgetUpdater {
         if (glance.connected && glance.maneuverType != null) schedule()
     }
 
+    private val glanceListener: (CarPlayGlance.Snapshot) -> Unit = { worker.post(::schedule) }
+
     fun attach(appContext: Context) {
         if (context != null) return
         context = appContext.applicationContext
-        CarPlayGlance.listener = { worker.post(::schedule) }
+        // Subscription (not the exclusive setter): embedded hosts listen on the same object.
+        CarPlayGlance.removeListener(glanceListener)
+        CarPlayGlance.addListener(glanceListener)
         worker.post(::schedule)
     }
 
