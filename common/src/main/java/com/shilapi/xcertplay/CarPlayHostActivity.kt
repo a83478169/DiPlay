@@ -94,6 +94,7 @@ import com.shilapi.xcertplay.airplay.AirPlaySessionListener
 import com.shilapi.xcertplay.airplay.CarPlayMediaEngine
 import com.shilapi.xcertplay.airplay.SafeAreaRect
 import com.shilapi.xcertplay.host.R
+
 import com.shilapi.xcertplay.location.AndroidCarPlayLocationProvider
 import com.shilapi.xcertplay.media.AndroidMediaSink
 import com.shilapi.xcertplay.media.CarPlayTouchMapper
@@ -130,6 +131,11 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
+
+/** Intent extras for embedded hosts: start the session silently, then finish the UI. */
+object CarPlayHostIntents {
+    const val EXTRA_SILENT_START = "com.shilapi.xcertplay.extra.SILENT_START"
+}
 
 /**
  * Full-screen CarPlay host. It renders decoded video through a [TextureView], forwards touch to
@@ -841,6 +847,7 @@ class CarPlayHostActivity : ComponentActivity() {
         MapMirrors.sink = mirrorSink
         MapMirrors.onChanged = mirrorsChanged
         languagePreferenceAtCreate = AppLocale.preference(this)
+        silentStartRequested = intent?.getBooleanExtra(CarPlayHostIntents.EXTRA_SILENT_START, false) == true
         if (isIphoneUsbAttachment(intent)) {
             AirPlayPersistence.saveWirelessEnabled(this, false)
         }
@@ -5541,6 +5548,9 @@ class CarPlayHostActivity : ComponentActivity() {
         return true
     }
 
+    /** Embedded host asked for a silent start: begin the session, then finish this UI. */
+    private var silentStartRequested = false
+
     private fun startCarPlay(size: DisplaySize) {
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress || controller != null) return
@@ -5646,6 +5656,10 @@ class CarPlayHostActivity : ComponentActivity() {
         try {
             ContextCompat.startForegroundService(this, Intent(this, DiPlaySessionService::class.java))
             next.start()
+            if (silentStartRequested) {
+                appendLog("Silent start: session handed to the background service, finishing UI")
+                finish()
+            }
         } catch (error: RuntimeException) {
             appendLog("Connection could not start: ${error.javaClass.simpleName}")
             shutdown(false, "foreground service could not start")
