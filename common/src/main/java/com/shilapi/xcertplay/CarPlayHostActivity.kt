@@ -135,6 +135,8 @@ import kotlin.math.roundToInt
 /** Intent extras for embedded hosts: start the session silently, then finish the UI. */
 object CarPlayHostIntents {
     const val EXTRA_SILENT_START = "com.shilapi.xcertplay.extra.SILENT_START"
+    /** Launched by an embedded host (e.g. NaviTool): BACK finishes instead of piling DiPlayActivity. */
+    const val EXTRA_EMBEDDED = "com.shilapi.xcertplay.extra.EMBEDDED"
 }
 
 /**
@@ -848,6 +850,7 @@ class CarPlayHostActivity : ComponentActivity() {
         MapMirrors.onChanged = mirrorsChanged
         languagePreferenceAtCreate = AppLocale.preference(this)
         silentStartRequested = intent?.getBooleanExtra(CarPlayHostIntents.EXTRA_SILENT_START, false) == true
+        launchedEmbedded = intent?.getBooleanExtra(CarPlayHostIntents.EXTRA_EMBEDDED, false) == true
         if (isIphoneUsbAttachment(intent)) {
             AirPlayPersistence.saveWirelessEnabled(this, false)
         }
@@ -879,6 +882,8 @@ class CarPlayHostActivity : ComponentActivity() {
                         closePicturePanel()
                     } else if (menuOpen) {
                         if (safeAreaEditorActive) closeSafeAreaEditor() else leaveSettingsMenu()
+                    } else if (launchedEmbedded) {
+                        finish()
                     } else {
                         showDiPlayHome()
                     }
@@ -5550,6 +5555,8 @@ class CarPlayHostActivity : ComponentActivity() {
 
     /** Embedded host asked for a silent start: begin the session, then finish this UI. */
     private var silentStartRequested = false
+    /** Embedded host context: BACK finishes this screen instead of showing the DiPlay home. */
+    private var launchedEmbedded = false
 
     private fun startCarPlay(size: DisplaySize) {
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) return
