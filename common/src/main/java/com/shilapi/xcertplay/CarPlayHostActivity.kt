@@ -139,6 +139,13 @@ object CarPlayHostIntents {
     const val EXTRA_EMBEDDED = "com.shilapi.xcertplay.extra.EMBEDDED"
 }
 
+/** Latest session bring-up facts for embedded hosts to log (window vs negotiated canvas). */
+object CarPlayDiagnostics {
+    @Volatile
+    @JvmField
+    var lastStartSummary: String? = null
+}
+
 /**
  * Full-screen CarPlay host. It renders decoded video through a [TextureView], forwards touch to
  * the active AirPlay session, and drives the complete wired or wireless bring-up through
@@ -5609,6 +5616,10 @@ class CarPlayHostActivity : ComponentActivity() {
                 "location=${config.locationReportingEnabled} " +
                 "mfi=${config.mfiTarget}",
         )
+        CarPlayDiagnostics.lastStartSummary =
+            "display=${size.width}x${size.height} negotiated=${airPlayConfig.main.widthPixels}x${airPlayConfig.main.heightPixels} " +
+            "scale=${displayScalePercent}% hideTop=$hideTopBar hideBottom=$hideBottomBar " +
+            "transport=${if (config.transport == CarPlayTransport.WIRED) "wired" else "wireless"}"
         val renderer = createMediaSink(
             videoWidth = airPlayConfig.main.widthPixels,
             videoHeight = airPlayConfig.main.heightPixels,
@@ -6786,6 +6797,9 @@ class CarPlayHostActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, !(hideTop && hideBottom))
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         val peek = temporarySystemBarsVisible && !multiWindow && !harmanFullscreenEnabled
+        // Sticky immersive: a swipe reveal goes translucent and hides itself again —
+        // several head units refuse a plain hide() and keep the bar drawn otherwise.
+        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         if (hideTop && !peek) {
             controller.hide(WindowInsetsCompat.Type.statusBars())
         } else {

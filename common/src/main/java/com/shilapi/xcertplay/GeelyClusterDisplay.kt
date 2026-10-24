@@ -21,6 +21,17 @@ import com.shilapi.xcertplay.airplay.SafeAreaRect
  * or non-public cluster, and picking the wrong panel would put the map on a passenger screen.
  * The identifiers only admit the route; the display still has to look like this cluster.
  */
+/**
+ * Kill switch for the cluster route. An embedded host that owns the instrument panel itself
+ * (e.g. NaviTool's own dashboard projection) seeds [enabled] = false: the head-unit-wide
+ * projection switch is shared, so DiPlay must not claim it.
+ */
+object ClusterFeatureGate {
+    @Volatile
+    @JvmField
+    var enabled: Boolean = true
+}
+
 internal object GeelyClusterDisplay {
 
     /** Qualcomm's generic SA8155 board name: several brands' head units report it. */
@@ -48,7 +59,8 @@ internal object GeelyClusterDisplay {
         device: String = Build.DEVICE,
         product: String = Build.PRODUCT,
         model: String = Build.MODEL,
-    ): Boolean = device.equals(DEVICE, ignoreCase = true) &&
+    ): Boolean = ClusterFeatureGate.enabled &&
+        device.equals(DEVICE, ignoreCase = true) &&
         product.equals(PRODUCT, ignoreCase = true) &&
         model.equals(MODEL, ignoreCase = true)
 
