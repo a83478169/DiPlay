@@ -6792,6 +6792,7 @@ class CarPlayHostActivity : ComponentActivity() {
             HarmanFullscreenCompat.clear(window)
             harmanFullscreenApplied = false
         }
+        applyEmbeddedLegacyFullscreen(multiWindow)
         val hideTop = hideTopBar && !multiWindow
         val hideBottom = hideBottomBar && !multiWindow
         WindowCompat.setDecorFitsSystemWindows(window, !(hideTop && hideBottom))
@@ -6812,6 +6813,26 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    }
+
+    /**
+     * Embedded hosts ask for true fullscreen: several head units' SystemUI keeps drawing the status
+     * bar no matter what the insets controller hides, so the window itself must also carry
+     * FLAG_FULLSCREEN and the legacy immersive flags (the window-creation recipe proven on those
+     * units). Idempotent; no-op for normal (non-embedded) launches and multi-window.
+     */
+    @Suppress("DEPRECATION")
+    private fun applyEmbeddedLegacyFullscreen(multiWindow: Boolean) {
+        if (!launchedEmbedded || multiWindow) return
+        window.addFlags(
+            android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+        )
+        window.decorView.systemUiVisibility =
+            android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                android.view.View.SYSTEM_UI_FLAG_FULLSCREEN or
+                android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
     }
 
     /** Temporary reveal without persisting bar visibility or changing AirPlay's negotiated size. */
