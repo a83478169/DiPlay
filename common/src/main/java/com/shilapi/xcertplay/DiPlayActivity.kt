@@ -167,6 +167,17 @@ internal object SettingsInformationArchitecture {
 }
 
 /** DiAuto's visual language, with a connection flow for an independent CarPlay receiver. */
+/**
+ * Kill switch for DiPlay's self-update. An embedded host (e.g. NaviTool) ships DiPlay inside its
+ * own APK: installing the standalone release beside it would run two CarPlay hosts that fight
+ * over the same session, cluster and wheel keys. The host seeds [enabled] = false.
+ */
+object DiPlayUpdateGate {
+    @Volatile
+    @JvmField
+    var enabled: Boolean = true
+}
+
 class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private val handler = Handler(Looper.getMainLooper())
     private var appNight = true
@@ -378,8 +389,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         if (savedInstanceState == null && isLauncherIntent(intent) && CarPlayBackgroundSession.hasSession()) {
             openProjection(); finish(); return
         }
-        scheduleBackgroundUpdateChecks()
-        availableUpdate = UpdateAvailability.available(this, version())
+        if (DiPlayUpdateGate.enabled) scheduleBackgroundUpdateChecks()
+        availableUpdate = if (DiPlayUpdateGate.enabled) UpdateAvailability.available(this, version()) else null
         enforceInterfaceSize()
         refreshAppearance()
         rememberLaunchAppearance()
@@ -538,7 +549,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         // The background check runs two minutes after opening, usually while CarPlay is in front: what it
         // found shows when DiPlay comes back, not only after the activity is created again.
-        availableUpdate = UpdateAvailability.available(this, version())
+        availableUpdate = if (DiPlayUpdateGate.enabled) UpdateAvailability.available(this, version()) else null
         // Back from the car settings: refresh the car hotspot reminder on the home page.
         if (!initialLaunch && !adbSwitchChangePending && !pausedForAdbSwitchChange &&
             (page == "home" || page == "settings" || page == "connection" || page == "setup")) render()
@@ -2623,7 +2634,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         updateMessage?.let { container.addView(label(it, 14, MUTED)) }
         when (updateStage) {
             UpdateStage.IDLE, UpdateStage.FAILED ->
-                container.addView(button(getString(R.string.update_check), false) { checkForUpdates() },
+                container.addView(button(getString(R.string.update_check), false) { if (DiPlayUpdateGate.enabled) checkForUpdates() },
                     matchButton(if (updateMessage == null) 0 else 10, 60))
             UpdateStage.CHECKING -> container.addView(label(getString(R.string.update_checking), 14, MUTED))
             UpdateStage.AVAILABLE -> container.addView(
