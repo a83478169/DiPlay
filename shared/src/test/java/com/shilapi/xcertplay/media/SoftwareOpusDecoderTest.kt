@@ -26,6 +26,26 @@ class SoftwareOpusDecoderTest {
     }
 
     @Test
+    fun softwareDecodeStaysWellInsideTheTwentyMillisecondFrameBudget() {
+        val encoder = SoftwareOpusEncoder(bitrate = 48_000)
+        val decoder = SoftwareOpusDecoder(sampleRate = 48_000, channels = 1)
+        val packet = encoder.encode(toneFrame()).single()
+        val pcm = ByteArray(SoftwareOpusEncoder.FRAME_BYTES)
+
+        repeat(20) { decoder.decode(packet, pcm) } // JIT + decoder state warm-up
+        val iterations = 200
+        val started = System.nanoTime()
+        repeat(iterations) { decoder.decode(packet, pcm) }
+        val averageMs = (System.nanoTime() - started) / 1_000_000.0 / iterations
+        println("software Opus decode average=${"%.3f".format(averageMs)}ms per 20ms frame")
+
+        assertTrue("average decode ${averageMs}ms exceeds half the 20ms frame budget",
+            averageMs < 10.0)
+        encoder.close()
+        decoder.close()
+    }
+
+    @Test
     fun decoderCreationFailureIsReportedWithoutThrowing() {
         val decoder = SoftwareOpusDecoder(48_000, 1, create = { _, _ -> error("no codec") })
         assertFalse(decoder.available)
