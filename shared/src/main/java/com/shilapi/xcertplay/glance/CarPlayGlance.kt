@@ -36,6 +36,16 @@ object CarPlayGlance {
      * [addListener]/[removeListener] support multiple concurrent subscribers.
      */
     private val listeners = java.util.concurrent.CopyOnWriteArrayList<(Snapshot) -> Unit>()
+    /** Host diagnostics: route frames and parse outcomes, without exposing the raw payload. */
+    private val diagnosticListeners = java.util.concurrent.CopyOnWriteArrayList<(String) -> Unit>()
+
+    fun addDiagnosticListener(subscriber: (String) -> Unit) { diagnosticListeners.add(subscriber) }
+
+    fun removeDiagnosticListener(subscriber: (String) -> Unit) { diagnosticListeners.remove(subscriber) }
+
+    private fun diagnostic(line: String) {
+        diagnosticListeners.forEach { listener -> runCatching { listener(line) } }
+    }
 
     var listener: ((Snapshot) -> Unit)?
         get() = listeners.lastOrNull()
@@ -56,16 +66,40 @@ object CarPlayGlance {
     }
 
     fun onFrame(frame: Iap2Frame) {
+        val routeFrame = frame.messageId == BydHudRouteState.ROUTE_GUIDANCE_UPDATE ||
+            frame.messageId == BydHudRouteState.ROUTE_GUIDANCE_MANEUVER_UPDATE
         val changed = synchronized(this) {
             when (frame.messageId) {
-                BydHudRouteState.ROUTE_GUIDANCE_UPDATE, BydHudRouteState.ROUTE_GUIDANCE_MANEUVER_UPDATE ->
-                    runCatching { route.accept(frame.messageId, frame.payload) }
+                BydHudRouteState.ROUTE_GUIDANCE_UPDATE, BydHudRouteState.ROUTE_GUIDANCE_MANEUVER_UPDATE -> {
+                    try {
+                        val change = route.accept(frame.messageId, frame.payload)
+                        diagnostic("CPNAV_TRACE frame id=0x" +
+                            frame.messageId.toString(16) + " len=${frame.payload.size} change=$change")
+                        change
+                    } catch (error: Throwable) {
+                        diagnostic("CPNAV_TRACE parse failed id=0x" +
+                            frame.messageId.toString(16) + " len=${frame.payload.size} " +
+                            "${error.javaClass.simpleName}: ${error.message.orEmpty()}")
+                        null
+                    }
+                }
                 ClusterSongState.NOW_PLAYING_UPDATE -> runCatching { song.accept(frame) }
                 else -> return
             }
             publishLocked()
         }
-        changed?.let { snap -> listeners.forEach { sub -> sub(snap) } }
+        if (routeFrame && changed == null) {
+            diagnostic("CPNAV_TRACE route frame produced no snapshot" +
+                " current=${last.maneuverType}")
+        }
+        changed?.let { snap ->
+            if (routeFrame) {
+                diagnostic("CPNAV_TRACE snapshot apple=${snap.maneuverType} side=${snap.drivingSide}" +
+                    " toNext=${snap.distanceMeters} road='${snap.road}'" +
+                    " remain=${snap.remainingMeters} eta=${snap.remainingSeconds}")
+            }
+            listeners.forEach { sub -> sub(snap) }
+        }
     }
 
     fun setConnected(next: Boolean) {
@@ -76,6 +110,7 @@ object CarPlayGlance {
                 route.clear()
                 song.clear()
             }
+            diagnostic("CPNAV_TRACE connected=$next")
             publishLocked()
         }
         changed?.let { snap -> listeners.forEach { sub -> sub(snap) } }

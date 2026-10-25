@@ -1765,6 +1765,14 @@ private class AudioRenderer(
     @Volatile private var running = true
     @Volatile private var started = false
     private var codec: MediaCodec? = null
+    private var softwareOpus: SoftwareOpusDecoder? = null
+    private val decoderImplementation: String
+        get() = when {
+            codec != null -> "platform"
+            softwareOpus?.available == true -> "software"
+            format.codec == AudioCodecKind.OPUS -> "unavailable"
+            else -> "none"
+        }
     private var track: AudioTrack? = null
     @Volatile private var navigationAttenuationDb = 0
     private var appliedNavigationAttenuationDb: Int? = null
@@ -1781,6 +1789,8 @@ private class AudioRenderer(
     private var inputDropped = 0
     private var shortOpusPackets = 0
     private var decoderUnavailablePackets = 0
+    private var softwareOpusPackets = 0L
+    private var softwareOpusFailureLogged = false
     private var outputBuffers = 0
     private var firstPcmLogged = false
     private val packetsReceived = AtomicInteger()
@@ -1874,9 +1884,14 @@ private class AudioRenderer(
                 "mediaChannel=$mediaChannel navigationChannel=$navigationChannel focus=$audioFocusEnabled") }
             when (format.codec) {
                 AudioCodecKind.AAC_LC -> configureCodec(MediaFormat.MIMETYPE_AUDIO_AAC)
-                AudioCodecKind.OPUS -> configureCodec(MediaFormat.MIMETYPE_AUDIO_OPUS)
+                AudioCodecKind.OPUS -> {
+                    configureCodec(MediaFormat.MIMETYPE_AUDIO_OPUS)
+                    if (codec == null) startSoftwareOpusFallback()
+                }
                 AudioCodecKind.LPCM -> Unit
             }
+            report("Audio: decoder selected audioType=${format.audioType} codec=${format.codec} " +
+                "implementation=$decoderImplementation rate=${format.sampleRate} channels=${format.channels}")
             createTrack()
             diagnosticStage = "focus"
             requestAudioFocus()
@@ -1950,8 +1965,28 @@ private class AudioRenderer(
             }
         } catch (error: Exception) {
             Log.e(TAG, "audio decoder configuration failed mime=$mime", error)
-            reportFailure(error)
+            // Opus 交给软解兜底；只有兜底也起不来才把本次事件当失败上报。
+            if (mime != MediaFormat.MIMETYPE_AUDIO_OPUS) reportFailure(error)
             null
+        }
+    }
+
+    private fun startSoftwareOpusFallback() {
+        val fallback = SoftwareOpusDecoder(
+            sampleRate = format.sampleRate,
+            channels = format.channels,
+        )
+        if (fallback.available) {
+            softwareOpus = fallback
+            Log.i(TAG, "audio Opus platform decoder unavailable; software decoder ready " +
+                "rate=${format.sampleRate} channels=${format.channels}")
+            report("Audio: Opus software fallback active audioType=${format.audioType} " +
+                "rate=${format.sampleRate} channels=${format.channels}")
+        } else {
+            val reason = fallback.failureDescription ?: "unknown"
+            Log.e(TAG, "audio Opus software decoder unavailable: $reason")
+            report("Audio: Opus decoder unavailable audioType=${format.audioType} reason=$reason")
+            reportFailure(IllegalStateException("Opus decoder unavailable: $reason"))
         }
     }
 
@@ -2264,7 +2299,30 @@ private class AudioRenderer(
                     }
                     return
                 }
-                feedCodec(accessUnit, timestampUs)
+                val software = softwareOpus
+                if (codec == null && software != null) {
+                    if (pcm.size < accessUnit.size) pcm = ByteArray(accessUnit.size)
+                    val bytes = software.decode(accessUnit, pcm)
+                    if (bytes > 0) {
+                        softwareOpusPackets++
+                        writePcm(pcm, 0, bytes)
+                        if (SoftwareOpusDecoder.shouldReport(softwareOpusPackets)) {
+                            report("Audio: Opus software decoded audioType=${format.audioType} " +
+                                "packets=$softwareOpusPackets bytes=$bytes")
+                        }
+                    } else {
+                        decoderUnavailablePackets++
+                        if (!software.available && !softwareOpusFailureLogged) {
+                            softwareOpusFailureLogged = true
+                            Log.e(TAG, "audio Opus software decoder stopped: ${software.failureDescription}")
+                            report("Audio: Opus software decoder stopped audioType=${format.audioType} " +
+                                "packets=$softwareOpusPackets")
+                            softwareOpus = null
+                        }
+                    }
+                } else {
+                    feedCodec(accessUnit, timestampUs)
+                }
             }
         }
     }
@@ -2543,6 +2601,7 @@ private class AudioRenderer(
         val channelName = if (mappedChannel == AudioChannel.PHONE) "CALL" else mappedChannel?.name
         val line = "audio stats audioType=${format.audioType} channel=$channelName " +
             "routeType=${currentTrack?.routedDevice?.type ?: -1} codec=${format.codec} " +
+            "decoder=$decoderImplementation " +
             "trackState=${currentTrack?.state ?: -1} playState=${currentTrack?.playState ?: -1} " +
             "sampleRate=${currentTrack?.sampleRate ?: format.sampleRate} " +
             "trackBufferFrames=${currentTrack?.bufferSizeInFrames ?: -1} " +
@@ -2562,6 +2621,7 @@ private class AudioRenderer(
         if (format.codec != AudioCodecKind.LPCM) {
             // Keep this separate: the exported diagnostic recorder caps each line at 700 characters.
             val decoderLine = "Audio: decoder stats audioType=${format.audioType} codec=${format.codec} " +
+                "implementation=$decoderImplementation softwareOpusPackets=$softwareOpusPackets " +
                 "inputQueuedTotal=$inputQueued inputDroppedTotal=$inputDropped " +
                 "shortOpusPacketsTotal=$shortOpusPackets decoderUnavailablePacketsTotal=$decoderUnavailablePackets " +
                 "outputBuffersTotal=$outputBuffers ended=$force"
@@ -2610,6 +2670,8 @@ private class AudioRenderer(
         NavigationPlayback.close(navigationPlaybackToken)
         AmbientMusicController.closeRenderer(ambientRendererToken)
         abandonAudioFocus()
+        softwareOpus?.close()
+        softwareOpus = null
         val codec = codec
         this.codec = null
         if (codec != null) {
