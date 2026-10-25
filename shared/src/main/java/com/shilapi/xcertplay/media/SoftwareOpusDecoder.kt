@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media
 
 import org.concentus.OpusDecoder
+import org.concentus.OpusException
 
 /**
  * Opus 下行软解兜底。
@@ -14,6 +15,7 @@ import org.concentus.OpusDecoder
 internal class SoftwareOpusDecoder(
     private val sampleRate: Int,
     private val channels: Int,
+    private val onError: (String, Throwable) -> Unit = { _, _ -> },
     create: (Int, Int) -> OpusDecoder = { rate, count -> OpusDecoder(rate, count) },
 ) {
     val available: Boolean
@@ -32,10 +34,11 @@ internal class SoftwareOpusDecoder(
     private val decodedChannels = if (channels >= 2) 2 else 1
     private val maxFrameSamples = MAX_FRAME_MILLIS * sampleRate.coerceOpusRate() / 1000
     private val shortPcm = ShortArray(maxFrameSamples * decodedChannels)
+    private var packetFailures = 0
 
     /**
      * 解一个 Opus 包，成功时返回 PCM16LE 的有效字节数，失败返回 -1。
-     * 失败后不再重试，AudioRenderer 会记一次诊断并跳过后续包，避免每 20ms 刷一条异常。
+     * 单个损坏包复位解码器后继续（只丢这一包）；解码器自身不可恢复的错误才停掉软解。
      */
     fun decode(packet: ByteArray, target: ByteArray): Int {
         val decoder = decoder ?: return -1
@@ -54,9 +57,15 @@ internal class SoftwareOpusDecoder(
                 target[index * 2 + 1] = ((sample shr 8) and 0xff).toByte()
             }
             bytes
+        } catch (error: OpusException) {
+            packetFailures++
+            if (packetFailures <= MAX_REPORTED_PACKET_FAILURES) {
+                onError("software Opus decode failed packet=$packetFailures", error)
+            }
+            runCatching { decoder.resetState() }
+            -1
         } catch (error: Throwable) {
-            // 外部数据边界：Opus 包来自手机，损坏包只应丢这一包；若解码器自身进入异常状态，
-            // 继续每包重试会在音频线程刷爆日志并可能反复失败，所以本次通话内停止软解。
+            // AssertionError 等表示解码器内部状态不可信；继续每包重试只会刷日志，本次通话停用软解。
             failure = error
             -1
         }
@@ -78,6 +87,7 @@ internal class SoftwareOpusDecoder(
     internal companion object {
         private const val MIN_PACKET_BYTES = 4
         private const val MAX_FRAME_MILLIS = 120
+        private const val MAX_REPORTED_PACKET_FAILURES = 3
         private const val REPORT_INTERVAL_PACKETS = 500L
 
         /** 500 包约 10 秒；只做一次低噪声心跳，证明软解确实在持续出 PCM。 */

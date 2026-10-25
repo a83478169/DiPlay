@@ -1975,6 +1975,10 @@ private class AudioRenderer(
         val fallback = SoftwareOpusDecoder(
             sampleRate = format.sampleRate,
             channels = format.channels,
+            onError = { message, error ->
+                Log.w(TAG, "$message audioType=${format.audioType}", error)
+                report("Audio: $message audioType=${format.audioType}")
+            },
         )
         if (fallback.available) {
             softwareOpus = fallback
